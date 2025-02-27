@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.yza1.seetacloud.com:25062 password (9)" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.yza1.seetacloud.com:25062 password (7)" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="root@connect.cqa1.seetacloud.com:42270 password">
         <serverdata>
@@ -114,13 +114,6 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="root@connect.yza1.seetacloud.com:25062 password (10)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="root@connect.yza1.seetacloud.com:25062 password (2)">
         <serverdata>
           <mappings>
@@ -159,21 +152,7 @@
       <paths name="root@connect.yza1.seetacloud.com:25062 password (7)">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="root@connect.yza1.seetacloud.com:25062 password (8)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="root@connect.yza1.seetacloud.com:25062 password (9)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/root/autodl-tmp/PCGS" local="$PROJECT_DIR$" />
+            <mapping deploy="/root/autodl-tmp/PCMRL" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
