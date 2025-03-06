@@ -151,7 +151,7 @@ class Decoder(nn.Module):
     
     def forward(self, z):  #[B, L, latent_dim] -> [B,L,N,3]
 
-        B, L, latent_dim = z.shape
+        L, B, latent_dim = z.shape
 
         z = z.reshape(B*L, latent_dim)
         

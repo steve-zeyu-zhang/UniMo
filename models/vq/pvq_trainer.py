@@ -103,8 +103,8 @@ class PVQTrainer:
         root_dir = self.args.eval_dir
         skeleton_name = self.args.dataset_name
 
-        pcd_root_dir = pjoin(root_dir, 'pcd', pcd_type, skeleton_name, f"{it:04d}")
-        video_save_dir = os.path.join(root_dir, "pcd_vis", pcd_type, skeleton_name, f"{it:04d}")
+        pcd_root_dir = pjoin(root_dir, 'pcd', skeleton_name, f"{it:04d}", pcd_type)
+        video_save_dir = os.path.join(root_dir, "pcd_vis", skeleton_name, f"{it:04d}", pcd_type)
         os.makedirs(video_save_dir, exist_ok=True)
 
         sample_dirs = sorted([d for d in os.listdir(pcd_root_dir) if d.startswith(f"{pcd_type}_")])
@@ -132,7 +132,7 @@ class PVQTrainer:
     def eval_pointcloud(self, it):
         samples = self.motions
         pcd_type = 'encode'
-        encode_pcd_root_dir = os.path.join(self.args.eval_dir, 'pcd', pcd_type, self.args.dataset_name, f"{it:04d}")
+        encode_pcd_root_dir = os.path.join(self.args.eval_dir, 'pcd', self.args.dataset_name, f"{it:04d}", pcd_type)
         os.makedirs(encode_pcd_root_dir, exist_ok=True)
 
         encode_global_pc = samples.clone().detach()
@@ -152,7 +152,7 @@ class PVQTrainer:
 
         processed_cloud = self.pred_motion
         pcd_type = 'predict'
-        predict_pcd_root_dir = os.path.join(self.args.eval_dir, 'pcd', pcd_type, self.args.dataset_name, f"{it:04d}")
+        predict_pcd_root_dir = os.path.join(self.args.eval_dir, 'pcd', self.args.dataset_name, f"{it:04d}", pcd_type)
         os.makedirs(predict_pcd_root_dir, exist_ok=True)
 
         pred_global_pc = processed_cloud.clone().detach()
