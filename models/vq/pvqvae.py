@@ -47,7 +47,7 @@ class PointEncoder(nn.Module):
 
 
         z = z.permute(0,2,1).float()
-        z = self.vq_encoder(z)
+        # z = self.vq_encoder(z)
         return z
 
 class PointDecoder(nn.Module):
@@ -70,7 +70,8 @@ class PointDecoder(nn.Module):
         self.deconv3 = nn.Conv1d(256, self.output_dim, 1)  # 输出 xyz 坐标
 
     def forward(self, quantized):  # [B, L, latent_dim] -> [B, L, N, 3]
-        y = self.vq_decoder(quantized)  # [B, L, latent_dim]
+        # y = self.vq_decoder(quantized)  # [B, L, latent_dim]
+        y = quantized
 
         B, L, latent_dim = y.shape
 

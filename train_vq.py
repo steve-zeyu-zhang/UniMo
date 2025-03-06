@@ -14,6 +14,8 @@ from data.cmu_dataset import CmuDataset, setup_skeleton
 from models.vq.pvqvae import PVQVAE
 from models.vq.pcmgvq import PCMGVQ
 from models.vq.model import PointVQVAE
+from models.vq.pointcloud_AE import PCMGAE
+
 from models.vq.pvq_trainer import PVQTrainer
 
 from options.vq_option import arg_parse
@@ -97,6 +99,9 @@ if __name__ == "__main__":
         args.max_length = 128
         args.dim_pose = args.src_n_points * 3
 
+        args.points_num = args.src_n_points
+        args.Transformer_pointdecoder_k = 32
+        args.Transformer_pointdecoder_num_branch = 1
     else:
         raise KeyError('Dataset Does not Exists')
     
@@ -117,6 +122,8 @@ if __name__ == "__main__":
         net = PVQVAE(args)
     elif args.vq_mode == 'pcmgvq':
         net = PCMGVQ(args)
+    elif args.vq_mode == 'pcmgae':
+        net = PCMGAE(args)
 
     pc_vq = sum(param.numel() for param in net.parameters())
     print(net)
@@ -141,3 +148,4 @@ if __name__ == "__main__":
 ## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emd --gpu_id 0 --vqvae_cfg point --max_epoch 8000 --eval_every_it 1000 --recons_loss emd
 ## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name cd --gpu_id 0 --vqvae_cfg point --max_epoch 8000 --eval_every_it 1000 --recons_loss cd_density
 ## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emb_density --gpu_id 0 --vqvae_cfg pvq --max_epoch 8000 --eval_every_it 1000 --recons_loss emb_density --vq_mode pvq
+## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emb_density --gpu_id 0 --vqvae_cfg pcmgae --max_epoch 40000 --eval_every_it 1000 --recons_loss emb_density --vq_mode pcmgae

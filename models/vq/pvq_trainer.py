@@ -67,7 +67,7 @@ class PVQTrainer:
         
         if self.args.recons_loss == 'emb':
             vertice_loss = self.emd_criterion(x, pred_pointcloud)
-            dentity_loss = 0
+            dentity_loss = torch.Tensor([0.0]).to(self.device)
         elif self.args.recons_loss == 'cd_density':
             vertice_loss = self.distance_criterion(x, pred_pointcloud)
             dentity_loss = self.density_criterion(x, pred_pointcloud)
@@ -186,6 +186,8 @@ class PVQTrainer:
         epoch = 0
         it = 0
 
+        best_loss = 99999.0
+
         if self.args.is_continue:
             model_dir = pjoin(self.args.model_dir, 'latest.tar')
             epoch, it = self.resume(model_dir)
@@ -235,6 +237,10 @@ class PVQTrainer:
                 if it % self.args.eval_every_it == 0:
                     self.logger.info("visualization...")
                     self.eval_pointcloud(it)
+
+                if best_loss > logs['loss']:
+                    self.save(pjoin(self.args.model_dir, 'best_loss.tar'), epoch, it)
+                    best_loss = logs['loss']
 
             epoch += 1
 

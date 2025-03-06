@@ -34,7 +34,7 @@ def arg_parse(is_train=False):
                        help="Ablations for the transformer architechture")
 
     ## vqvae arch
-    parser.add_argument("--vq_mode", type=str, default='pvq', choices=["vq", "pvq", "pcmgvq"], help="Base config for vqvae")
+    parser.add_argument("--vq_mode", type=str, default='pvq', choices=["vq", "pvq", "pcmgvq", "pcmgae"], help="Base config for vqvae")
     parser.add_argument("--vqvae_cfg", type=str, help="Base config for vqvae")
     parser.add_argument("--code_dim", type=int, default=256, help="embedding dimension")
     parser.add_argument("--nb_code", type=int, default=512, help="nb of embedding")
