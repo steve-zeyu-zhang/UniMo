@@ -111,7 +111,7 @@ def visualize_point_cloud_offscreen(pcd_files, output_video_path, fps=15, frame_
             ffmpeg
             .input(os.path.join(temp_dir, "frame_%05d.png"), framerate=fps)
             .output(output_video_path, vcodec='libx264', pix_fmt='yuv420p')
-            .run(overwrite_output=True, quiet=True)
+            .run(overwrite_output=True, quiet=True, capture_stdout=True, capture_stderr=True)
         )
     except Exception as e:
         print("FFmpeg error:", e)

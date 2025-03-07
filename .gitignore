@@ -2,6 +2,7 @@ output
 dataset
 .vscode
 checkpoint
+checkpoints
 evaluate
 lib
 pytorch3d

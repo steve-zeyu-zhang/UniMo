@@ -4,16 +4,16 @@ from torch.utils import data
 from torch.utils.data._utils.collate import default_collate
 from pytorch3d.transforms import euler_angles_to_matrix, matrix_to_quaternion
 import random
-import codecs as cs
 import glob
 from data.skeleton import Skeleton
 from data.bvh import parse_bvh_skeleton
+import numpy as np
 
 def collate_fn(batch):
     batch.sort(key=lambda x: x[3], reverse=True)
     return default_collate(batch)
 
-def setup_skeleton(skeleton_file, device):
+def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
     with open(skeleton_file, "r") as f:
         joint_names, joint_offsets, joint_hierarchy, end_sites = parse_bvh_skeleton(f.read())
 
@@ -62,8 +62,8 @@ def setup_skeleton(skeleton_file, device):
     joint_offsets = torch.tensor(joint_offsets, dtype=torch.float32, device=device)
     joint_tails = torch.tensor(joint_tails, dtype=torch.float32, device=device)
 
-    return Skeleton(joint_names, joint_hierarchy, joint_offsets, joint_tails, joint_bgroups, end_joints, pairs,
-                    scale=0.056444, device=device,rotation_order="ZYX")
+    return Skeleton(joint_names, joint_hierarchy, joint_offsets, joint_tails, joint_bgroups, end_joints, pairs, skeleton_name=skeleton_name, n_point=n_point, std=std, 
+                    scale=0.056444, device=device, rotation_order="ZYX")
                         
 class CmuDataset(data.Dataset):
     def __init__(self, data_folder, min_length=0, step=1):
@@ -80,6 +80,7 @@ class CmuDataset(data.Dataset):
 
         self.min_length = min_length
         self.motion_data = []
+        self.lengths = []
         for data in motion_data:
             if data.shape[0] // step >= min_length:
                 self.motion_data.append(data)
@@ -113,6 +114,7 @@ class CmuDataset(data.Dataset):
             q = torch.reshape(q, (data.shape[0], -1))
 
             self.motion_data[i] = torch.cat([data[..., :3] * self.SCALE, q], dim=-1)
+            self.lengths.append(self.motion_data[i].shape[0] - min_length)
 
     def load_files(self):
         raw_data = []
@@ -137,6 +139,11 @@ class CmuDataset(data.Dataset):
 
         return torch.tensor(motion_data, dtype=torch.float32)
 
+    def compute_sampling_prob(self):
+        prob = np.array(self.lengths, dtype=np.float32)
+        prob /= np.sum(prob)
+        return prob
+    
     def __len__(self):
         return len(self.motion_data)
 
@@ -153,3 +160,30 @@ class CmuDataset(data.Dataset):
         q = torch.reshape(motion[..., 3:].clone(), (*root_p.shape[:1], -1, 4))
 
         return root_p, q
+
+def DATALoader(cmu_path_train,
+                min_length,
+                batch_size,
+                num_workers=8,
+                drop_last=True, 
+                shuffle=True, 
+                pin_memory=True):
+    
+    trainSet = CmuDataset(cmu_path_train, min_length)
+    prob = trainSet.compute_sampling_prob()
+    sampler = torch.utils.data.WeightedRandomSampler(prob, num_samples = len(trainSet) * 1000, replacement=True)
+    train_loader = torch.utils.data.DataLoader(trainSet,
+                                              batch_size,
+                                              shuffle=shuffle,
+                                              #sampler=sampler,
+                                              num_workers=num_workers,
+                                              #collate_fn=collate_fn,
+                                              drop_last=drop_last,
+                                              pin_memory=pin_memory)
+    
+    return train_loader
+
+def cycle(iterable):
+    while True:
+        for x in iterable:
+            yield x

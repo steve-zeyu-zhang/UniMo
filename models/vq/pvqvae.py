@@ -11,12 +11,9 @@ sys.path.append(ROOT_DIR)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from model.upsample_utils import bilateral_block_l1,bilateral_block_l2,bilateral_block_l3
-from utils.chamfer_loss import ChamferLoss, Chamfer_Density_Loss
-from utils.furthestpointsample import farthest_point_sample, index_points
+
 from models.vq.encdec import Encoder, Decoder
 from models.vq.quantize import QuantizeEMAReset
-from models_pcmrl.pc_mrl import PointCloudDecoder
 
 
 class PointEncoder(nn.Module):
@@ -47,7 +44,7 @@ class PointEncoder(nn.Module):
 
 
         z = z.permute(0,2,1).float()
-        # z = self.vq_encoder(z)
+        z = self.vq_encoder(z)
         return z
 
 class PointDecoder(nn.Module):
@@ -70,8 +67,8 @@ class PointDecoder(nn.Module):
         self.deconv3 = nn.Conv1d(256, self.output_dim, 1)  # 输出 xyz 坐标
 
     def forward(self, quantized):  # [B, L, latent_dim] -> [B, L, N, 3]
-        # y = self.vq_decoder(quantized)  # [B, L, latent_dim]
-        y = quantized
+        y = self.vq_decoder(quantized)  # [B, L, latent_dim]
+        # y = quantized
 
         B, L, latent_dim = y.shape
 

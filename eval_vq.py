@@ -15,6 +15,7 @@ from models.vq.pvqvae import PVQVAE
 from models.vq.pcmgvq import PCMGVQ
 from models.vq.model import PointVQVAE
 from models.vq.pointcloud_AE import PCMGAE
+from models.pcmrl.pc_mrl import PointCloudDecoder
 
 from models.vq.pvq_trainer import PVQTrainer
 
@@ -22,6 +23,7 @@ from options.vq_option import arg_parse
 
 from utils.fixseed import fixseed
 import utils.utils as utils_model
+from utils.eval_unimo import evaluation_unimo
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -34,6 +36,8 @@ if __name__ == "__main__":
     desc = args.dataset_name  # dataset
     desc += f'-{args.vqvae_cfg}'
 
+    args.checkpoints_dir = 'checkpoints/00039-cmu-emb_density/VQVAE-emb_density-cmu-pvq'
+    args.out_dir = pjoin(args.checkpoints_dir, 'eval')
     # Pick output directory.
     prev_run_dirs = []
     outdir = args.out_dir
@@ -42,18 +46,15 @@ if __name__ == "__main__":
     prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
     prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
     cur_run_id = max(prev_run_ids, default=-1) + 1
-    args.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{args.dataset_name}-{args.name}', f'VQVAE-{args.name}-{desc}')
+    args.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{args.dataset_name}-{args.name}')
     assert not os.path.exists(args.run_dir)
 
-    args.model_dir = pjoin(args.run_dir, 'model')
-    args.meta_dir = pjoin(args.run_dir, 'meta')
     args.eval_dir = pjoin(args.run_dir, 'eval')
     args.log_dir = pjoin(args.run_dir, 'logs')
 
     print('Creating directory...')
     os.makedirs(args.run_dir)
-    os.makedirs(args.model_dir, exist_ok=True)
-    os.makedirs(args.meta_dir, exist_ok=True)
+
     os.makedirs(args.eval_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
 
@@ -63,7 +64,7 @@ if __name__ == "__main__":
     logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
 
     # save the training config
-    args.args_save_dir = os.path.join(args.run_dir, 'train_config.json')
+    args.args_save_dir = os.path.join(args.run_dir, 'eval_config.json')
     args_dict = vars(args)
     with open(args.args_save_dir, 'wt') as f:
         json.dump(args_dict, f, indent=4)
@@ -93,6 +94,9 @@ if __name__ == "__main__":
         args.cmu_skeleton_train = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/train/001/01_01.bvh'
         args.cmu_path_val = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/val'
 
+        args.ck_vq_path = pjoin(args.checkpoints_dir, 'model', 'latest.tar')
+        args.ck_pcmrl_path = 'checkpoints/pcmrl/PCMRL50000.pt'
+
         args.min_length = 128
         args.src_n_points = 256
         args.std_cloud = 0.05
@@ -102,9 +106,40 @@ if __name__ == "__main__":
         args.points_num = args.src_n_points
         args.Transformer_pointdecoder_k = 32
         args.Transformer_pointdecoder_num_branch = 1
+
+        ###
+        args.tgt_n_points = 1024
+        args.point_sampling_std=0.05
+        args.n_bgroups=5
+        args.d_model_ = "Base PointTransformer dimension size, aggregated point cloud vector is 16x larger"
+        args.d_model = 64
+        args.k_farthest_first = 3
+        args.temporal_n_heads = 4
+        args.temporal_n_layers = 6
+        args.learning_rate = 0.0001
+        args.warmup_steps = 500
+        args.knn_loss_k = 8
+        
+        ###
+
+
+        args.vq_mode == 'pvq'
     else:
         raise KeyError('Dataset Does not Exists')
     
+
+
+    val_loader = cmu_dataset.DATALoader(args.cmu_path_val, args.min_length, batch_size=12, drop_last=True, num_workers=4,
+                              shuffle=True, pin_memory=True)
+    val_loader_iter = cmu_dataset.cycle(val_loader)
+
+    val_loaders = [val_loader]
+
+    skeleton = cmu_dataset.setup_skeleton(args.cmu_skeleton_train, args.device, args.dataset_name, args.src_n_points, args.std_cloud)
+    skeletons = [skeleton]
+
+
+
     if args.vq_mode == 'vq':
         net = PointVQVAE(args,
                     args.dim_pose,
@@ -125,32 +160,56 @@ if __name__ == "__main__":
     elif args.vq_mode == 'pcmgae':
         net = PCMGAE(args)
 
+    vq_trainer_ck = torch.load(args.ck_vq_path)
+    net.load_state_dict(vq_trainer_ck['vq_model'])
+    net.to(args.device)
+    net.eval()
+
     pc_vq = sum(param.numel() for param in net.parameters())
     print(net)
     print("Total parameters of discriminator net: {}".format(pc_vq))
     print('Total parameters of all models: {}M'.format(pc_vq/1000_000))
 
 
-    train_loader = cmu_dataset.DATALoader(args.cmu_path_train, args.min_length,batch_size=args.batch_size, drop_last=True, num_workers=4,
-                              shuffle=True, pin_memory=True)
-    train_loader_iter = cmu_dataset.cycle(train_loader)
+    valid_joints_list = []
+    d_pose_outputs = []
+    for skeleton in skeletons:
+        d_pose_output = 3
+        valid_joints = []
+        for i in range(len(skeleton.joint_lengths)):
+            if skeleton.joint_lengths[i] > 1e-6:
+                d_pose_output += 4
+                valid_joints.append(i)
+        valid_joints_list.append(torch.tensor(valid_joints, dtype=torch.int64, device=args.device))
+        d_pose_outputs.append(d_pose_output)
 
-    val_loader = cmu_dataset.DATALoader(args.cmu_path_val, args.min_length,batch_size=8, drop_last=True, num_workers=4,
-                              shuffle=True, pin_memory=True)
+    max_d_pose = max(d_pose_outputs)
+
+    decoder = PointCloudDecoder(
+        args.n_bgroups,
+        args.d_model,
+        max_d_pose,
+        args.temporal_n_heads,
+        args.temporal_n_layers,
+        args.k_farthest_first,
+        args.max_length
+    ).to(args.device)
+
+    decoder.load_state_dict(torch.load(args.ck_pcmrl_path))
+    decoder.to(args.device)
+    decoder.eval()
+
+    
+    pc_vq = sum(param.numel() for param in decoder.parameters())
+    print(decoder)
+    print("Total parameters of discriminator net: {}".format(pc_vq))
+    print('Total parameters of all models: {}M'.format(pc_vq/1000_000))
+
+    ep = 0
+    while ep <= args.max_epoch:
+        ep += 1
+        evaluation_unimo(args.run_dir, val_loaders, net, decoder, skeletons, ep, writer, args.device)
+
+## python eval_vq.py --dataset_name cmu
 
 
-    skeleton = cmu_dataset.setup_skeleton(args.cmu_skeleton_train, args.device, args.dataset_name, args.src_n_points, args.std_cloud)
-
-
-    train_loader_iters = [train_loader_iter]
-    val_loaders = [val_loader]
-    skeletons = [skeleton]
-
-    trainer = PVQTrainer(args, vq_model=net, skeletons=skeletons, logger=logger)
-    trainer.train(train_loader_iters, val_loaders)
-
-## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name point --gpu_id 0 --vqvae_cfg default --max_epoch 60000 --eval_every_it 1000 --recons_loss emd
-## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emd --gpu_id 0 --vqvae_cfg point --max_epoch 8000 --eval_every_it 1000 --recons_loss emd
-## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name cd --gpu_id 0 --vqvae_cfg point --max_epoch 8000 --eval_every_it 1000 --recons_loss cd_density
-## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emb_density --gpu_id 0 --vqvae_cfg pvq --max_epoch 8000 --eval_every_it 1000 --recons_loss emb_density --vq_mode pvq
-## xvfb-run -a python train_vq.py --dataset_name cmu --batch_size 12 --name emb_density --gpu_id 0 --vqvae_cfg pcmgae --max_epoch 40000 --eval_every_it 1000 --recons_loss emb_density --vq_mode pcmgae

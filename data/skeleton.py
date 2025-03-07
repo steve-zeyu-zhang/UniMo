@@ -6,11 +6,16 @@ from pytorch3d.transforms import matrix_to_euler_angles
 
 
 class Skeleton:
-    def __init__(self, joint_names, joint_hierarchy, joint_offsets, joint_tails, joint_bgroups, end_joints, pairs,rotation_order,
-                 scale=1.0, device="cpu"):
+    def __init__(self, joint_names, joint_hierarchy, joint_offsets, joint_tails, joint_bgroups, end_joints, pairs,rotation_order, skeleton_name,
+                 std=-1, n_point=-1, scale=1.0, device="cpu"):
         self.n_joints = len(joint_names)
         self.device = device
         self.scale = scale
+        self.name = skeleton_name
+
+        self.std = std
+        self.n_point = n_point
+
         # 1d array, -1 for root
         self.joint_names = joint_names
         self.joint_hierarchy = joint_hierarchy
@@ -109,20 +114,20 @@ class Skeleton:
             glob_q = q
 
         return heads, glob_q
-
+    
     def save_as_pcd(self, points, filename):
         header = f"""# .PCD v0.7 - Point Cloud Data file format
-    VERSION 0.7
-    FIELDS x y z
-    SIZE 4 4 4
-    TYPE F F F
-    COUNT 1 1 1
-    WIDTH {points.shape[0]}
-    HEIGHT 1
-    VIEWPOINT 0 0 0 1 0 0 0
-    POINTS {points.shape[0]}
-    DATA ascii
-    """
+                VERSION 0.7
+                FIELDS x y z
+                SIZE 4 4 4
+                TYPE F F F
+                COUNT 1 1 1
+                WIDTH {points.shape[0]}
+                HEIGHT 1
+                VIEWPOINT 0 0 0 1 0 0 0
+                POINTS {points.shape[0]}
+                DATA ascii
+                """
         with open(filename, 'w') as f:
             f.write(header)
             # 确保点云数据格式正确
@@ -399,6 +404,10 @@ class Skeleton:
         # global_p: [b, l, j, 3]
         # global_q: [b, l, j, 4]
         # output: [b, l, n, 3 + bgroups]
+
+        if self.n_point != -1:
+            n_points = self.n_point
+            std = self.std
 
         batches = global_p.shape[0]
         frames = global_p.shape[1]
