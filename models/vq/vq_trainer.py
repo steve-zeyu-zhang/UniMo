@@ -36,12 +36,12 @@ class PVQTrainer:
                 self.l1_criterion = torch.nn.L1Loss()
             elif args.recons_loss == 'l1_smooth':
                 self.l1_criterion = torch.nn.SmoothL1Loss()
-            elif args.recons_loss == 'emb':
+            elif args.recons_loss == 'emd':
                 self.emd_criterion = losses.compute_emd_loss
             elif args.recons_loss == 'cd_density':
                 self.distance_criterion = losses.chamfer_distance_loss
                 self.density_criterion = losses.compute_density_loss
-            elif args.recons_loss == 'emb_density':
+            elif args.recons_loss == 'emd_density':
                 self.emd_criterion = losses.compute_emd_loss
                 self.density_criterion = losses.compute_density_loss
 
@@ -50,30 +50,32 @@ class PVQTrainer:
     def forward(self, data_loader_iter):
         skeleton = self.skeletons[self.inner_idx]
 
-        root_p, q = next(data_loader_iter)
+        cond, root_p, q, m_lens = next(data_loader_iter)
         root_p = root_p.to(self.device).float()
         q = q.to(self.device).float()
 
         global_p, global_q = skeleton.fk(root_p, q, local_q=True)
-        samples = skeleton.generate_pointcloud(global_p, global_q)
+        samples = skeleton.generate_pointcloud(global_p, global_q, m_lens)
         
 
-        self.current_means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
-        samples[..., :3] -= self.current_means
-        x = samples[..., :3]
+        # self.current_means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
+        # samples[..., :3] -= self.current_means
 
-        pred_pointcloud, commit_loss, perplexity = self.vq_model(x) #[B, L, Num_point, 3]
+        # x = samples[..., :3]
+        x = samples
+
+        pred_pointcloud, commit_loss, perplexity = self.vq_model(x) #[B, L, Num_point, 3+group]
         
-        self.motions = x
-        self.pred_motion = pred_pointcloud
+        x = x[..., :3]
+        pred_motion = pred_pointcloud[..., :3]
         
-        if self.args.recons_loss == 'emb':
+        if self.args.recons_loss == 'emd':
             vertice_loss = self.emd_criterion(x, pred_pointcloud)
             dentity_loss = torch.Tensor([0.0]).to(self.device)
         elif self.args.recons_loss == 'cd_density':
             vertice_loss = self.distance_criterion(x, pred_pointcloud)
             dentity_loss = self.density_criterion(x, pred_pointcloud)
-        elif self.args.recons_loss == 'emb_density':
+        elif self.args.recons_loss == 'emd_density':
             vertice_loss = self.emd_criterion(x, pred_pointcloud)
             dentity_loss = self.density_criterion(x, pred_pointcloud)
         

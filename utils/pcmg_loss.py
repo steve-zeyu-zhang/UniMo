@@ -106,6 +106,7 @@ class PcmgLoss:
             :param pred_seq: size[B,L, M, C]
             :return: sum of Density-aware Chamfer Distance of two point sets
             """
+
             B,L,N,C=gt_seq.shape
             _,_,M,_=pred_seq.shape
             gt_seq=gt_seq.permute(1,0,2,3)      #[L，B，N，C]

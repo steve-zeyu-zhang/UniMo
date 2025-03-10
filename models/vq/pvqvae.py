@@ -17,12 +17,12 @@ from models.vq.quantize import QuantizeEMAReset
 
 
 class PointEncoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, code_dim, nb_code, in_dim):
         super(PointEncoder, self).__init__()
-        self.latent_dim = args.latent_dim
-        self.conv1 = torch.nn.Conv1d(args.input_dim, 256, 1)
+        self.latent_dim = code_dim
+        self.conv1 = torch.nn.Conv1d(in_dim, 256, 1)
         self.conv2 = torch.nn.Conv1d(256, 512, 1)
-        self.conv3 = torch.nn.Conv1d(512, args.latent_dim, 1)
+        self.conv3 = torch.nn.Conv1d(512, code_dim, 1)
         self.vq_encoder = Encoder(256, 256, down_t=2, stride_t=2, width=256, depth=3, dilation_growth_rate=3, activation='relu', norm=None)
 
 
@@ -48,23 +48,23 @@ class PointEncoder(nn.Module):
         return z
 
 class PointDecoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, code_dim, nb_code, in_dim):
         super(PointDecoder, self).__init__()
-        self.latent_dim = args.latent_dim
-        self.output_dim = args.input_dim
+        self.latent_dim = code_dim
+        self.output_dim = in_dim
         self.num_points = 256
 
-        # VQ 解码部分
+
         self.vq_decoder = Decoder(256, 256, down_t=2, stride_t=2, width=256, depth=3, dilation_growth_rate=3, activation='relu', norm=None)
 
-        # MLP 先扩展点数
-        self.fc_expand = nn.Linear(self.latent_dim, self.latent_dim * self.num_points)  # 先拉成 N 个点
-        self.fc_reshape = nn.Linear(self.latent_dim, 256)  # 变换维度
 
-        # 1D 反卷积
+        self.fc_expand = nn.Linear(self.latent_dim, self.latent_dim * self.num_points)  
+        self.fc_reshape = nn.Linear(self.latent_dim, 256) 
+
+
         self.deconv1 = nn.Conv1d(256, 512, 1)
         self.deconv2 = nn.Conv1d(512, 256, 1)
-        self.deconv3 = nn.Conv1d(256, self.output_dim, 1)  # 输出 xyz 坐标
+        self.deconv3 = nn.Conv1d(256, self.output_dim, 1)  
 
     def forward(self, quantized):  # [B, L, latent_dim] -> [B, L, N, 3]
         y = self.vq_decoder(quantized)  # [B, L, latent_dim]
@@ -72,38 +72,38 @@ class PointDecoder(nn.Module):
 
         B, L, latent_dim = y.shape
 
-        # **扩展成 N 维** -> [B, L, latent_dim * N]
+        #[B, L, latent_dim * N]
         y = self.fc_expand(y)
 
-        # **Reshape 成 (B, L, N, latent_dim)**
+        #  (B, L, N, latent_dim)
         y = y.view(B, L, self.num_points, latent_dim)  # [B, L, N, latent_dim]
 
-        # **调整通道顺序** 以进行 1D 卷积
+
         y = y.permute(0, 1, 3, 2)  # [B, L, latent_dim, N]
         y = self.fc_reshape(y)  # [B, L, 256, N]
 
         y = y.view(B * L, self.num_points, self.latent_dim)
 
-        # **1D 卷积恢复点云特征**
+
         y = F.relu(self.deconv1(y))
         y = F.relu(self.deconv2(y))
         y = self.deconv3(y)  # [B, L, 3, N]
 
-        # **调整回 (B, L, N, 3)**
+
         y = y.view(B, L, self.output_dim, self.latent_dim)
         y = y.permute(0, 1, 3, 2)  # [B, L, N, 3]
         return y
 
 
 class PVQVAE(nn.Module):
-    def __init__(self, args):
+    def __init__(self, code_dim, nb_code, in_dim, mu):
         super().__init__()
-        self.latent_dim = args.latent_dim
+        self.latent_dim = code_dim
 
-        self.encoder = PointEncoder(args)
-        self.decoder = PointDecoder(args)
+        self.encoder = PointEncoder(code_dim, nb_code, in_dim)
+        self.decoder = PointDecoder(code_dim, nb_code, in_dim)
 
-        self.quantizer = QuantizeEMAReset(512, 256, args)
+        self.quantizer = QuantizeEMAReset(nb_code, code_dim, mu)
         # self._chamfer_density_loss=Chamfer_Density_Loss()
 
     def forward(self, x):
@@ -118,3 +118,11 @@ class PVQVAE(nn.Module):
         y = self.decoder(x_quantized)
 
         return y, commit_loss, perplexity
+
+    def encode(self, x):
+        z = self.encoder(x)
+        z = z.permute(0, 2, 1)
+        # Quantization
+        x_quantized =  self.quantizer.quantize(z)
+        # print(x_quantized.shape)
+        return x_quantized

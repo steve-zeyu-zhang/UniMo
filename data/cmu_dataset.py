@@ -9,10 +9,6 @@ from data.skeleton import Skeleton
 from data.bvh import parse_bvh_skeleton
 import numpy as np
 
-def collate_fn(batch):
-    batch.sort(key=lambda x: x[3], reverse=True)
-    return default_collate(batch)
-
 def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
     with open(skeleton_file, "r") as f:
         joint_names, joint_offsets, joint_hierarchy, end_sites = parse_bvh_skeleton(f.read())
@@ -66,9 +62,9 @@ def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
                     scale=0.056444, device=device, rotation_order="ZYX")
                         
 class CmuDataset(data.Dataset):
-    def __init__(self, data_folder, min_length=0, step=1):
+    def __init__(self, dataset_path, min_length=0, step=1):
 
-        self.data_folder = data_folder
+        self.dataset_path = dataset_path
         self.src_n_points = 256
         self.length = min_length
         self.SCALE = 0.056444
@@ -86,7 +82,7 @@ class CmuDataset(data.Dataset):
                 self.motion_data.append(data)
 
 
-        files = glob.glob(self.data_folder + "/**/*.bvh", recursive=True)
+        files = glob.glob(self.dataset_path + "/**/*.bvh", recursive=True)
         fps60 = ["33_", "34_", "42_", "60_", "61_", "62_", "74_", "75_", "77_", "79_", "80_", "87_", "88_", "89_"]
 
         # quaternion conversion
@@ -159,9 +155,10 @@ class CmuDataset(data.Dataset):
 
         q = torch.reshape(motion[..., 3:].clone(), (*root_p.shape[:1], -1, 4))
 
-        return root_p, q
+        l = len(motion)
+        return root_p, q, l
 
-def DATALoader(cmu_path_train,
+def DATALoader(dataset_path,
                 min_length,
                 batch_size,
                 num_workers=8,
@@ -169,15 +166,11 @@ def DATALoader(cmu_path_train,
                 shuffle=True, 
                 pin_memory=True):
     
-    trainSet = CmuDataset(cmu_path_train, min_length)
-    prob = trainSet.compute_sampling_prob()
-    sampler = torch.utils.data.WeightedRandomSampler(prob, num_samples = len(trainSet) * 1000, replacement=True)
+    trainSet = CmuDataset(dataset_path, min_length)
     train_loader = torch.utils.data.DataLoader(trainSet,
                                               batch_size,
                                               shuffle=shuffle,
-                                              #sampler=sampler,
                                               num_workers=num_workers,
-                                              #collate_fn=collate_fn,
                                               drop_last=drop_last,
                                               pin_memory=pin_memory)
     

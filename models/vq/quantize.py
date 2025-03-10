@@ -4,11 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class QuantizeEMAReset(nn.Module):
-    def __init__(self, nb_code, code_dim, args):
+    def __init__(self, nb_code, code_dim, mu):
         super().__init__()
         self.nb_code = nb_code
         self.code_dim = code_dim
-        self.mu = args.mu
+        self.mu = mu
         self.reset_codebook()
         
     def reset_codebook(self):

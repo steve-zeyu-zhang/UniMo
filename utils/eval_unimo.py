@@ -127,7 +127,85 @@ def evaluate(self, n_tests):
                     f"knn_v: {knn_loss_v_total / len(self.dataloaders):.4f} "
                     f"end: {end_loss_total / len(self.dataloaders):.4f} "
                     f"unit: {unit_loss_total / len(self.dataloaders):.4f}\n")
+        
             
+@torch.no_grad()
+def evaluation_pcde(out_dir, val_loaders, pcde_model, tgt_skeletons, ep, writer, device, save=True, draw=True):
+    pcde_model.eval()
+
+    assert len(val_loaders) == len(tgt_skeletons)
+
+    valid_joints_list = []
+    d_pose_outputs = []
+    for skeleton in tgt_skeletons:
+        d_pose_output = 3
+        valid_joints = []
+        for i in range(len(skeleton.joint_lengths)):
+            if skeleton.joint_lengths[i] > 1e-6:
+                d_pose_output += 4
+                valid_joints.append(i)
+        valid_joints_list.append(torch.tensor(valid_joints, dtype=torch.int64, device=device))
+        d_pose_outputs.append(d_pose_output)
+    tgt_n_points = 1024
+
+    it = 0
+
+    for dataset_id, val_loader in enumerate(val_loaders):
+        for batch in val_loader:
+            it += 1
+
+            cond, root_p, q, m_lens = batch
+            root_p = root_p.to(device).float()
+            q = q.to(device).float()
+
+            skeleton = tgt_skeletons[dataset_id]
+
+            global_p, global_q = skeleton.fk(root_p, q, local_q=True)
+            samples = skeleton.generate_pointcloud(global_p, global_q, m_lens)
+
+            end_joints = global_p.transpose(0, 2).clone()[skeleton.end_joints].transpose(0, 2)
+            
+            means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
+            samples[..., :3] -= means
+            end_joints -= means
+            real_global_p = global_p - means
+            real_global_q = global_q
+
+            pred = pcde_model(samples)
+
+
+            skeleton_idx = dataset_id
+            valid_joints = valid_joints_list[skeleton_idx]
+            d_pose_output = d_pose_outputs[skeleton_idx]
+            tgt_skeleton = tgt_skeletons[skeleton_idx]
+
+
+            pred_p = pred[..., :3]
+            pred_q_part = pred[..., 3:d_pose_output]
+            pred_q = torch.reshape(pred_q_part, (pred.shape[0], pred.shape[1], -1, 4))
+
+
+            pred_q_full = torch.zeros((pred.shape[0], pred.shape[1], skeleton.n_joints, 4),
+                                        dtype=torch.float32, device=device)
+            pred_q_full[..., 0] = 1
+            indices = torch.reshape(valid_joints, (1, 1, -1, 1)).repeat(pred_q.shape[0], pred_q.shape[1], 1, 4)
+            pred_q_full = torch.scatter(pred_q_full, 2, indices, pred_q)
+
+            pred_global_p, pred_global_q = skeleton.fk(pred_p, pred_q_full, local_q=False)
+
+
+
+
+            pred_pointcloud = skeleton.generate_pointcloud(pred_global_p, pred_global_q, m_lens,
+                                                                n_points=tgt_n_points)
+
+            if save:
+                eval_pointcloud(samples[..., :3].cpu().numpy(), skeleton, 'encode', out_dir, it, m_lens=m_lens, draw=draw)
+                eval_pointcloud(pred_pointcloud[..., :3].cpu().numpy(), skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
+
+                eval_skeleton(real_global_p, real_global_q, skeleton, 'gt', out_dir, it, m_lens=m_lens, draw=draw)
+                eval_skeleton(pred_global_p, pred_global_q, skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
+
 @torch.no_grad()
 def evaluation_pvqvae(out_dir, val_loaders, vq_model, tgt_skeletons, ep, writer, device, save=True, draw=True):
     vq_model.eval()
@@ -152,25 +230,31 @@ def evaluation_pvqvae(out_dir, val_loaders, vq_model, tgt_skeletons, ep, writer,
         for batch in val_loader:
             it += 1
 
-            root_p, q = batch
+            cond, root_p, q, m_lens = batch
             root_p = root_p.to(device).float()
             q = q.to(device).float()
 
             skeleton = tgt_skeletons[dataset_id]
 
             global_p, global_q = skeleton.fk(root_p, q, local_q=True)
-            samples = skeleton.generate_pointcloud(global_p, global_q)
+            samples = skeleton.generate_pointcloud(global_p, global_q, m_lens)
 
-            current_means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
-            samples[..., :3] -= current_means
-            x = samples[..., :3]
+            # current_means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
+            # samples[..., :3] -= current_means
+            x = samples
 
             pred_pointcloud, commit_loss, perplexity = vq_model(x) #[B, L, Num_point, 3]
 
+            # global_pc = motions.clone().detach()
+            # global_pc[..., :3] += current_means
+            # pc_numpy = global_pc.cpu().numpy()
 
             if save:
-                eval_pointcloud(samples, skeleton, 'encode', out_dir, ep, current_means, draw=draw)
-                eval_pointcloud(pred_pointcloud, skeleton, 'pred', out_dir, ep, current_means, draw=draw)
+                eval_pointcloud(samples[..., :3].cpu().numpy(), skeleton, 'encode', out_dir, it, m_lens=m_lens, draw=draw)
+                eval_pointcloud(pred_pointcloud[..., :3].cpu().numpy(), skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
+
+                eval_skeleton(global_p, global_q, skeleton, 'gt', out_dir, it, m_lens=m_lens, draw=draw)
+                # eval_skeleton(pred_global_p_adjusted, pred_global_q, skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
 
  
 @torch.no_grad()
@@ -244,19 +328,19 @@ def evaluation_unimo(out_dir, val_loaders, vq_model, pc_decoder_model, tgt_skele
             eval_skeleton(pred_global_p_adjusted, pred_global_q, skeleton, 'pred', out_dir, ep, max_num_saved=5)
 
 
-def save_skeleton(global_p, global_q, skeleton, save_dir, max_num_saved = 5):
+def save_skeleton(global_p, global_q, skeleton, save_dir, m_lens, max_num_saved = 5):
 
     batch_size = global_p.shape[0]
     for batch_idx in range(min(max_num_saved, batch_size)):
-        root_pos = global_p[batch_idx, :, 0, :]  # [frames, 3]
-        batch_global_q = global_q[batch_idx]  # [frames, joints, 4]
+        root_pos = global_p[batch_idx, :m_lens[batch_idx], 0, :]  # [frames, 3]
+        batch_global_q = global_q[batch_idx, :m_lens[batch_idx]]  # [frames, joints, 4]
 
         predict_filepath = pjoin(save_dir, f"{batch_idx:03d}.bvh")
         skeleton.save_bvh(
             predict_filepath,
             root_pos.detach().cpu(),
             batch_global_q.detach().cpu(),
-            frame_time=1 / 30.0
+            frame_time=1 / 20.0
         )
 
 def vis_skeleton(source_bvh_dir, video_save_dir):
@@ -265,6 +349,7 @@ def vis_skeleton(source_bvh_dir, video_save_dir):
 
     for sample_dir in sample_dirs:
         sample_path = os.path.join(source_bvh_dir, sample_dir)
+        sample_dir = sample_dir.rsplit('.bvh', 1)[0]
         output_video_path = os.path.join(video_save_dir, f"{sample_dir}.mp4")
 
         anim, joint_names, frametime = BVH.load(sample_path)
@@ -275,14 +360,15 @@ def vis_skeleton(source_bvh_dir, video_save_dir):
         plot_3d_motion(output_video_path, kinematic_chain, joints=joint, dataset='bvh_general', title=f"{sample_dir}", fps=20)
 
 
-def eval_skeleton(global_p, global_q, skeleton, sub_type, eval_dir, it, max_num_saved=5, draw=True):
+def eval_skeleton(global_p, global_q, skeleton, sub_type, eval_dir, it, m_lens, max_num_saved=5, draw=True):
     bvh_save_dir = pjoin(eval_dir, 'skeleton', skeleton.name, f"{it:04d}", sub_type)
-    save_pointcloud(global_p, global_q, skeleton, bvh_save_dir, max_num_saved=max_num_saved)
+    os.makedirs(bvh_save_dir, exist_ok=True)
+    save_skeleton(global_p, global_q, skeleton, bvh_save_dir, m_lens=m_lens, max_num_saved=max_num_saved)
 
     if draw:
         video_save_dir = pjoin(eval_dir, 'visual_skeleton', skeleton.name, f"{it:04d}", sub_type)
         os.makedirs(video_save_dir, exist_ok=True)
-        vis_pointcloud(video_save_dir, video_save_dir)
+        vis_skeleton(bvh_save_dir, video_save_dir)
 
 
 def vis_pointcloud(source_pc_dir, video_save_dir):
@@ -302,11 +388,11 @@ def vis_pointcloud(source_pc_dir, video_save_dir):
         visualize_point_cloud_offscreen(
             pcd_files,
             output_video_path,
-            fps=30,
+            fps=20,
             frame_size=(640, 480)
         )
 
-def save_pointcloud(motions, skeleton, save_dir, max_motion_length=128, max_num_saved=5):
+def save_pointcloud(motions, skeleton, save_dir, m_lens, max_num_saved=5):
 
     total_num = motions.shape[0]
 
@@ -315,7 +401,7 @@ def save_pointcloud(motions, skeleton, save_dir, max_motion_length=128, max_num_
         pcdunit_save_dir = pjoin(save_dir, f"{idx:03d}")
         os.makedirs(pcdunit_save_dir, exist_ok=True)
 
-        for frame_idx in range(max_motion_length):
+        for frame_idx in range(m_lens[idx]):
             frame_pc = motions[idx, frame_idx]
             filename = f"frame_{frame_idx:04d}.pcd"
             filepath = pjoin(pcdunit_save_dir, filename)
@@ -323,14 +409,10 @@ def save_pointcloud(motions, skeleton, save_dir, max_motion_length=128, max_num_
 
 
 
-def eval_pointcloud(motions, skeleton, sub_type, eval_dir, it, current_means, max_motion_length=128, max_num_saved=5, draw=True):
-
-    global_pc = motions.clone().detach()
-    global_pc[..., :3] += current_means
-    pc_numpy = global_pc.cpu().numpy()
+def eval_pointcloud(motions, skeleton, sub_type, eval_dir, it, m_lens, max_num_saved=5, draw=True):
 
     pc_save_dir = pjoin(eval_dir, 'pointcloud', skeleton.name, f"{it:04d}", sub_type)
-    save_pointcloud(pc_numpy, skeleton, pc_save_dir, max_motion_length=max_motion_length, max_num_saved=max_num_saved)
+    save_pointcloud(motions, skeleton, pc_save_dir, m_lens=m_lens, max_num_saved=max_num_saved)
 
     if draw:
         video_save_dir = pjoin(eval_dir, 'visual_pointcloud', skeleton.name, f"{it:04d}", sub_type)

@@ -17,7 +17,7 @@ from models.vq.model import PointVQVAE
 from models.vq.pointcloud_AE import PCMGAE
 from models.pcmrl.pc_mrl import PointCloudDecoder
 
-from models.vq.pvq_trainer import PVQTrainer
+from models.vq.vq_trainer import PVQTrainer
 
 from options.vq_option import arg_parse
 

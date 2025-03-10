@@ -7,6 +7,10 @@
 
 conda env create -f environment.yml
 
+conda activate UniMo
+
+pip install git+https://github.com/openai/CLIP.git
+
 cd pytorch3d
 python setup.py install
 

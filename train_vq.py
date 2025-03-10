@@ -9,14 +9,14 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 
-from data import cmu_dataset
+from data import uni_dataset
 
 from models.vq.pvqvae import PVQVAE
 from models.vq.pcmgvq import PCMGVQ
 from models.vq.model import PointVQVAE
 from models.vq.pointcloud_AE import PCMGAE
 
-from models.vq.pvq_trainer import PVQTrainer
+from models.vq.vq_trainer import PVQTrainer
 
 from options.vq_option import arg_parse
 
@@ -33,6 +33,9 @@ if __name__ == "__main__":
     # [Prepare description]
     desc = args.dataset_name  # dataset
     desc += f'-{args.vqvae_cfg}'
+
+    args.device = torch.device("cpu" if args.gpu_id == -1 else "cuda:" + str(args.gpu_id))
+    print(f"Using Device: {args.device}")
 
     # Pick output directory.
     prev_run_dirs = []
@@ -60,16 +63,18 @@ if __name__ == "__main__":
     ##### ---- Logger ---- #####
     logger = utils_model.get_logger(args.run_dir)
     writer = SummaryWriter(args.run_dir)
-    logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
+    # logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
 
-    # save the training config
-    args.args_save_dir = os.path.join(args.run_dir, 'train_config.json')
-    args_dict = vars(args)
-    with open(args.args_save_dir, 'wt') as f:
-        json.dump(args_dict, f, indent=4)
-
-    args.device = torch.device("cpu" if args.gpu_id == -1 else "cuda:" + str(args.gpu_id))
-    print(f"Using Device: {args.device}")
+    if args.is_train:
+    # save to the disk
+        if not os.path.exists(args.run_dir):
+            os.makedirs(args.run_dir)
+        file_name = os.path.join(args.run_dir, 'opt.txt')
+        with open(file_name, 'wt') as opt_file:
+            opt_file.write('------------ Options -------------\n')
+            for k, v in sorted(vars(args).items()):
+                opt_file.write('%s: %s\n' % (str(k), str(v)))
+            opt_file.write('-------------- End ----------------\n')
 
     if args.dataset_name == "t2m":
         args.data_root = './dataset/HumanML3D/'
@@ -87,11 +92,9 @@ if __name__ == "__main__":
         # val_dataset = MotionDataset(args, mean, std, val_split_file)
     elif args.dataset_name == "cmu":
         args.data_root = ''
-        args.latent_dim = 256
-        args.input_dim = 3
-        args.cmu_path_train = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/train'
-        args.cmu_skeleton_train = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/train/001/01_01.bvh'
-        args.cmu_path_val = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/val'
+        args.input_dim = 8
+        dataset_path = 'dataset/Jaguar/'
+        args.skeleton_train_path = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/train/001/01_01.bvh'
 
         args.min_length = 128
         args.src_n_points = 256
@@ -102,6 +105,17 @@ if __name__ == "__main__":
         args.points_num = args.src_n_points
         args.Transformer_pointdecoder_k = 32
         args.Transformer_pointdecoder_num_branch = 1
+    elif args.dataset_name == 'Jaguar':
+        args.input_dim = 8
+        args.min_length = 64
+        args.src_n_points = 256
+        args.std_cloud = 0.05
+
+        skeleton_train_path = '/root/autodl-tmp/pcmrl-vis/dataset/cmu/train/001/01_01.bvh'
+        train_split_file = 'dataset/Jaguar/train.txt'
+        val_split_file = 'dataset/Jaguar/val.txt'
+        dataset_path = 'dataset/Jaguar/'
+        
     else:
         raise KeyError('Dataset Does not Exists')
     
@@ -119,7 +133,10 @@ if __name__ == "__main__":
                     args.vq_act,
                     args.vq_norm)
     elif args.vq_mode == 'pvq':
-        net = PVQVAE(args)
+        net = PVQVAE(args.code_dim,
+                     args.nb_code,
+                     args.input_dim,
+                     args.mu)
     elif args.vq_mode == 'pcmgvq':
         net = PCMGVQ(args)
     elif args.vq_mode == 'pcmgae':
@@ -131,16 +148,14 @@ if __name__ == "__main__":
     print('Total parameters of all models: {}M'.format(pc_vq/1000_000))
 
 
-    train_loader = cmu_dataset.DATALoader(args.cmu_path_train, args.min_length,batch_size=args.batch_size, drop_last=True, num_workers=4,
+    train_loader = uni_dataset.DATALoader(dataset_path, train_split_file, min_length=args.min_length, max_length=196, step=4, batch_size=args.batch_size, drop_last=True, num_workers=4,
                               shuffle=True, pin_memory=True)
-    train_loader_iter = cmu_dataset.cycle(train_loader)
+    train_loader_iter = uni_dataset.cycle(train_loader)
 
-    val_loader = cmu_dataset.DATALoader(args.cmu_path_val, args.min_length,batch_size=8, drop_last=True, num_workers=4,
+    val_loader = uni_dataset.DATALoader(dataset_path, val_split_file, min_length=args.min_length, max_length=196, step=4, batch_size=8, drop_last=True, num_workers=4,
                               shuffle=True, pin_memory=True)
-
-
-    skeleton = cmu_dataset.setup_skeleton(args.cmu_skeleton_train, args.device, args.dataset_name, args.src_n_points, args.std_cloud)
-
+    
+    skeleton = uni_dataset.setup_skeleton(skeleton_train_path, args.device, args.dataset_name, args.src_n_points, args.std_cloud)
 
     train_loader_iters = [train_loader_iter]
     val_loaders = [val_loader]

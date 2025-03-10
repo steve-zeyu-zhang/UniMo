@@ -18,8 +18,8 @@ def arg_parse(is_train=False):
     parser.add_argument('--lr', default=1e-4, type=float, help='max learning rate')
     parser.add_argument('--milestones', default=[150000, 250000], nargs="+", type=int, help="learning rate schedule (iterations)")
     parser.add_argument('--gamma', default=0.05, type=float, help="learning rate decay")
-
     parser.add_argument('--weight_decay', default=0.0, type=float, help='weight decay')
+    
     parser.add_argument("--commit", type=float, default=0.02, help="hyper-parameter for the commitment loss")
     parser.add_argument('--loss_vel', type=float, default=0.5, help='hyper-parameter for the velocity loss')
     parser.add_argument('--recons_loss', type=str, default='l1_smooth', help='reconstruction loss')

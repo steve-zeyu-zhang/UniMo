@@ -400,45 +400,89 @@ class Skeleton:
 
 
 
-    def generate_pointcloud(self, global_p, global_q, n_points=256, std=1.0, output_joints=False):
-        # global_p: [b, l, j, 3]
-        # global_q: [b, l, j, 4]
-        # output: [b, l, n, 3 + bgroups]
+    def generate_pointcloud(self, global_p, global_q, m_lens, n_points=256, std=1.0, output_joints=False):
+        # global_p: [b, max_l, j, 3]
+        # global_q: [b, max_l, j, 4]
+        # m_lens: a list or tensor indicating the actual number of valid frames for each batch (length = b)
+        # output: [b, max_l, n_points, 3 + bgroups_dim] (frames beyond m_lens are padded with zeros)
 
         if self.n_point != -1:
             n_points = self.n_point
             std = self.std
 
         batches = global_p.shape[0]
-        frames = global_p.shape[1]
+        max_len = global_p.shape[1]
 
+        # Sample n_points joint indices from the joint distribution, shape: [n_points]
         joints = self.joint_dist.sample(torch.Size((n_points,))).to(global_p.device)
+        # Randomly generate origins for each batch (to control the ratio along the joint's rest position), shape: [b, n_points]
         origins = torch.rand((batches, n_points), dtype=torch.float32, device=global_p.device)
+        # Generate normal offsets for each batch for each sampled point, shape: [b, n_points, 3]
         offsets = torch.normal(torch.zeros((batches, n_points, 3), dtype=torch.float32, device=global_p.device), std)
 
-        tails_sample = torch.reshape(self.joint_tails[joints], (1, 1, -1, 3)).clone()
+        # Retrieve tail positions and body group data for the sampled joints (assuming self.joint_tails and self.joint_bgroups are defined)
+        # tails: [n_points, 3]
+        tails = self.joint_tails[joints].clone()
+        # bgroups: [n_points, bgroups_dim]
+        bgroups = self.joint_bgroups[joints].clone()
+        bgroups_dim = bgroups.shape[-1]
 
-        indices = torch.reshape(joints, (1, 1, -1, 1))
-        heads_sample = torch.gather(global_p, 2, indices.repeat(batches, frames, 1, 3))
-        q_sample = torch.gather(global_q, 2, indices.repeat(batches, frames, 1, 4))
+        # Initialize the output tensor with zeros, shape: [b, max_l, n_points, 3 + bgroups_dim]
+        output_tensor = torch.zeros((batches, max_len, n_points, 3 + bgroups_dim), 
+                                    dtype=global_p.dtype, device=global_p.device)
 
-        bgroups = torch.reshape(self.joint_bgroups[joints].clone(), (1, 1, n_points, -1))
+        # Expand tails for broadcasting, shape becomes: [1, n_points, 3]
+        tails_exp = tails.unsqueeze(0)
 
-        # 1. normal offset position origin along rest position of joint
-        pointcloud = tails_sample * torch.reshape(origins, (batches, 1, -1, 1))
-        # 2. apply normal offset
-        pointcloud = pointcloud + offsets.unsqueeze(1)
-        # 3. apply current global rotation of joint to get parent-local point position
-        pointcloud = self._qrot(pointcloud, q_sample)
-        # 4. apply parent joint position to get global point position
-        pointcloud = pointcloud + heads_sample
-        # 5. append body group data
-        pointcloud = torch.cat([pointcloud, bgroups.repeat(batches, frames, 1, 1)], dim=-1)
+        # Process each batch individually
+        for i in range(batches):
+            # Get the number of valid frames for the current batch (ensure it is an integer)
+            valid_frames = int(m_lens[i].item() if torch.is_tensor(m_lens) else m_lens[i])
+            if valid_frames == 0:
+                continue
+
+            # Extract the valid frames for the current batch:
+            # p_valid: [valid_frames, j, 3] and q_valid: [valid_frames, j, 4]
+            p_valid = global_p[i, :valid_frames]
+            q_valid = global_q[i, :valid_frames]
+
+            # Construct indices for sampling joints:
+            # Reshape joints (shape [n_points]) to [1, n_points, 1] and expand to [valid_frames, n_points, 1]
+            indices = joints.view(1, n_points, 1).expand(valid_frames, n_points, 1)
+
+            # Gather joint positions and rotations from the valid frames of the current batch
+            # Here, gathering is done along the joint dimension (dim=1)
+            heads_sample = torch.gather(p_valid, 1, indices.expand(valid_frames, n_points, 3))
+            q_sample = torch.gather(q_valid, 1, indices.expand(valid_frames, n_points, 4))
+
+            # 1. Compute the initial point cloud position along the joint's rest tail position scaled by the origin
+            # Reshape origins[i] (shape [n_points]) to [1, n_points, 1] and expand to [valid_frames, n_points, 1]
+            origins_i = origins[i].view(1, n_points, 1).expand(valid_frames, n_points, 1)
+            initial_pc = tails_exp.expand(valid_frames, n_points, 3) * origins_i
+
+            # 2. Add the normal offset
+            offsets_i = offsets[i].unsqueeze(0).expand(valid_frames, n_points, 3)
+            pc_with_offset = initial_pc + offsets_i
+
+            # 3. Apply the current global rotation of the joint using the sampled quaternions (q_sample)
+            rotated_pc = self._qrot(pc_with_offset, q_sample)
+
+            # 4. Add the joint's global position (head) to get the final global point position
+            pc_global = rotated_pc + heads_sample
+
+            # 5. Concatenate the body group data.
+            # Expand bgroups from shape [n_points, bgroups_dim] to [valid_frames, n_points, bgroups_dim]
+            bgroups_exp = bgroups.unsqueeze(0).expand(valid_frames, n_points, bgroups_dim)
+            pc_final = torch.cat([pc_global, bgroups_exp], dim=-1)
+
+            # Assign the computed point cloud for the valid frames into the output tensor; the remaining frames stay zero (padding)
+            output_tensor[i, :valid_frames] = pc_final
 
         if output_joints:
-            return pointcloud, joints
+            return output_tensor, joints
         else:
-            return pointcloud
+            return output_tensor
+
 
     def get_tails(self, global_p, global_q):
         # global_p & global_q: [..., j, 4]
