@@ -93,7 +93,7 @@ def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
 
                         
 class UniDataset(data.Dataset):
-    def __init__(self, dataset_path, split_file, min_length=64, max_length=196, step=1):
+    def __init__(self, dataset_path, split_file, skeleton, min_length=64, max_length=196, step=1):
 
         self.src_n_points = 256
         self.length = min_length
@@ -103,6 +103,8 @@ class UniDataset(data.Dataset):
         self.max_length = max_length
         self.pointer = 0
         self.step = step
+
+        self.skeleton = skeleton
 
         id_list = []
         with open(split_file, 'r') as f:
@@ -114,7 +116,7 @@ class UniDataset(data.Dataset):
         name_list = []
         for name in tqdm(id_list):
             
-            bvh_file = pjoin(dataset_path, './data/', name + '.bvh')
+            bvh_file = pjoin(dataset_path, './motions/', name + '.bvh')
             with open(bvh_file, "r") as f:
 
                 while f.readline() != "MOTION\n":
@@ -130,22 +132,23 @@ class UniDataset(data.Dataset):
                     except ValueError:
                         pass
                 motion = torch.tensor(sub_motion_data, dtype=torch.float32)
-                if motion.shape[0] < min_length:
+                if motion.shape[0] < min_length or motion.shape[0] > max_length :
                     continue 
-
-                if step is not None:
-                    data = motion[1::step].clone()
-                else:
-                    data = motion[1::4].clone()
+                # if step is not None:
+                #     data = motion[1::step].clone()
+                # else:
+                #     data = motion[1::4].clone()
+                data = motion.clone()
 
                 rotation_euler = torch.reshape(data[..., 3:], (data.shape[0], -1, 3))
                 rotation_matrix = euler_angles_to_matrix(torch.deg2rad(rotation_euler), "ZYX")
                 q = matrix_to_quaternion(rotation_matrix)
 
-                # _xzy_to_xyz = torch.sqrt(torch.tensor([[2, 2, 0, 0]], dtype=torch.float32, device=data_device)) / 2
-                # _xzy_to_xyz = _xzy_to_xyz.expand(q[:, 0].shape)
-                # q[:, 0] = self.skeleton._qmul(_xzy_to_xyz, q[:, 0])
-                # data[..., :3] = self.skeleton._qrot(data[..., :3], _xzy_to_xyz)
+                if 'Dog' in dataset_path:
+                    _xzy_to_xyz = torch.sqrt(torch.tensor([[2, 2, 0, 0]], dtype=torch.float32)) / 2
+                    _xzy_to_xyz = _xzy_to_xyz.expand(q[:, 0].shape)
+                    q[:, 0] = self.skeleton._qmul(_xzy_to_xyz, q[:, 0])
+                    data[..., :3] = self.skeleton._qrot(data[..., :3], _xzy_to_xyz)
 
                 sign = torch.gt(torch.linalg.vector_norm(q[1:] - q[:-1], dim=-1, keepdim=True),
                                 torch.linalg.vector_norm(q[1:] + q[:-1], dim=-1, keepdim=True)).int()
@@ -207,8 +210,7 @@ class UniDataset(data.Dataset):
             motion = np.concatenate([motion,
                                      np.zeros((self.max_length - m_length, motion.shape[1]))
                                      ], axis=0)
-            
-        motion = torch.from_numpy(motion)
+            motion = torch.tensor(motion, dtype=torch.float32)
 
         root_p = motion[..., :3]
 
@@ -218,6 +220,7 @@ class UniDataset(data.Dataset):
 
 def DATALoader(dataset_path,
                 split_file,
+                skeleton,
                 min_length,
                 max_length,
                 step,
@@ -227,7 +230,7 @@ def DATALoader(dataset_path,
                 shuffle=True, 
                 pin_memory=True):
     
-    trainSet = UniDataset(dataset_path, split_file, min_length=min_length, max_length=max_length, step=step)
+    trainSet = UniDataset(dataset_path, split_file, skeleton, min_length=min_length, max_length=max_length, step=step)
     train_loader = torch.utils.data.DataLoader(trainSet,
                                               batch_size,
                                               shuffle=shuffle,

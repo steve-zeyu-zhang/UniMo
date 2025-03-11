@@ -130,10 +130,8 @@ def evaluate(self, n_tests):
         
             
 @torch.no_grad()
-def evaluation_pcde(out_dir, val_loaders, pcde_model, tgt_skeletons, ep, writer, device, save=True, draw=True):
+def evaluation_pcde(out_dir, val_loaders_iters, pcde_model, tgt_skeletons, ep, writer, device, save=True, draw=True):
     pcde_model.eval()
-
-    assert len(val_loaders) == len(tgt_skeletons)
 
     valid_joints_list = []
     d_pose_outputs = []
@@ -150,61 +148,60 @@ def evaluation_pcde(out_dir, val_loaders, pcde_model, tgt_skeletons, ep, writer,
 
     it = 0
 
-    for dataset_id, val_loader in enumerate(val_loaders):
-        for batch in val_loader:
-            it += 1
+    for dataset_id, val_loaders_iter in enumerate(val_loaders_iters):
 
-            cond, root_p, q, m_lens = batch
-            root_p = root_p.to(device).float()
-            q = q.to(device).float()
+        batch = next(val_loaders_iter)
+        it += 1
 
-            skeleton = tgt_skeletons[dataset_id]
+        cond, root_p, q, m_lens = batch
+        root_p = root_p.to(device).float()
+        q = q.to(device).float()
 
-            global_p, global_q = skeleton.fk(root_p, q, local_q=True)
-            samples = skeleton.generate_pointcloud(global_p, global_q, m_lens)
+        skeleton = tgt_skeletons[dataset_id]
 
-            end_joints = global_p.transpose(0, 2).clone()[skeleton.end_joints].transpose(0, 2)
-            
-            means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
-            samples[..., :3] -= means
-            end_joints -= means
-            real_global_p = global_p - means
-            real_global_q = global_q
+        global_p, global_q = skeleton.fk(root_p, q, local_q=True)
+        samples = skeleton.generate_pointcloud(global_p, global_q, m_lens)
 
-            pred = pcde_model(samples)
+        end_joints = global_p.transpose(0, 2).clone()[skeleton.end_joints].transpose(0, 2)
+        
+        means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
+        samples[..., :3] -= means
+        end_joints -= means
+        real_global_p = global_p - means
+        real_global_q = global_q
 
-
-            skeleton_idx = dataset_id
-            valid_joints = valid_joints_list[skeleton_idx]
-            d_pose_output = d_pose_outputs[skeleton_idx]
-            tgt_skeleton = tgt_skeletons[skeleton_idx]
+        pred = pcde_model(samples)
 
 
-            pred_p = pred[..., :3]
-            pred_q_part = pred[..., 3:d_pose_output]
-            pred_q = torch.reshape(pred_q_part, (pred.shape[0], pred.shape[1], -1, 4))
+        skeleton_idx = dataset_id
+        valid_joints = valid_joints_list[skeleton_idx]
+        d_pose_output = d_pose_outputs[skeleton_idx]
+        tgt_skeleton = tgt_skeletons[skeleton_idx]
 
 
-            pred_q_full = torch.zeros((pred.shape[0], pred.shape[1], skeleton.n_joints, 4),
-                                        dtype=torch.float32, device=device)
-            pred_q_full[..., 0] = 1
-            indices = torch.reshape(valid_joints, (1, 1, -1, 1)).repeat(pred_q.shape[0], pred_q.shape[1], 1, 4)
-            pred_q_full = torch.scatter(pred_q_full, 2, indices, pred_q)
-
-            pred_global_p, pred_global_q = skeleton.fk(pred_p, pred_q_full, local_q=False)
+        pred_p = pred[..., :3]
+        pred_q_part = pred[..., 3:d_pose_output]
+        pred_q = torch.reshape(pred_q_part, (pred.shape[0], pred.shape[1], -1, 4))
 
 
+        pred_q_full = torch.zeros((pred.shape[0], pred.shape[1], skeleton.n_joints, 4),
+                                    dtype=torch.float32, device=device)
+        pred_q_full[..., 0] = 1
+        indices = torch.reshape(valid_joints, (1, 1, -1, 1)).repeat(pred_q.shape[0], pred_q.shape[1], 1, 4)
+        pred_q_full = torch.scatter(pred_q_full, 2, indices, pred_q)
+
+        pred_global_p, pred_global_q = skeleton.fk(pred_p, pred_q_full, local_q=False)
 
 
-            pred_pointcloud = skeleton.generate_pointcloud(pred_global_p, pred_global_q, m_lens,
-                                                                n_points=tgt_n_points)
+        pred_pointcloud = skeleton.generate_pointcloud(pred_global_p, pred_global_q, m_lens,
+                                                            n_points=tgt_n_points)
 
-            if save:
-                eval_pointcloud(samples[..., :3].cpu().numpy(), skeleton, 'encode', out_dir, it, m_lens=m_lens, draw=draw)
-                eval_pointcloud(pred_pointcloud[..., :3].cpu().numpy(), skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
+        if save:
+            eval_pointcloud(samples[..., :3].cpu().numpy(), skeleton, 'encode', out_dir, ep, m_lens=m_lens, draw=draw)
+            eval_pointcloud(pred_pointcloud[..., :3].cpu().numpy(), skeleton, 'pred', out_dir, ep, m_lens=m_lens, draw=draw)
 
-                eval_skeleton(real_global_p, real_global_q, skeleton, 'gt', out_dir, it, m_lens=m_lens, draw=draw)
-                eval_skeleton(pred_global_p, pred_global_q, skeleton, 'pred', out_dir, it, m_lens=m_lens, draw=draw)
+            eval_skeleton(real_global_p, real_global_q, skeleton, 'gt', out_dir, ep, m_lens=m_lens, draw=draw)
+            eval_skeleton(pred_global_p, pred_global_q, skeleton, 'pred', out_dir, ep, m_lens=m_lens, draw=draw)
 
 @torch.no_grad()
 def evaluation_pvqvae(out_dir, val_loaders, vq_model, tgt_skeletons, ep, writer, device, save=True, draw=True):
@@ -241,7 +238,7 @@ def evaluation_pvqvae(out_dir, val_loaders, vq_model, tgt_skeletons, ep, writer,
 
             # current_means = torch.mean(samples[..., :3], dim=(1, 2), keepdim=True)
             # samples[..., :3] -= current_means
-            x = samples
+            x = samples[..., :3]
 
             pred_pointcloud, commit_loss, perplexity = vq_model(x) #[B, L, Num_point, 3]
 

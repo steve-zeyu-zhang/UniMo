@@ -67,7 +67,7 @@ class PVQTrainer:
         pred_pointcloud, commit_loss, perplexity = self.vq_model(x) #[B, L, Num_point, 3+group]
         
         x = x[..., :3]
-        pred_motion = pred_pointcloud[..., :3]
+        pred_pointcloud = pred_pointcloud[..., :3]
         
         if self.args.recons_loss == 'emd':
             vertice_loss = self.emd_criterion(x, pred_pointcloud)

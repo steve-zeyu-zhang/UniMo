@@ -33,8 +33,8 @@ def write_to_file(file_list, filename):
             f.write(f"{file}\n")
 
 if __name__ == '__main__':
-    dataset_root = '/root/autodl-tmp/pcmrl-vis/dataset/Jaguar'
-    data_dir = pjoin(dataset_root, 'data')
+    dataset_root = '/root/autodl-tmp/pcmrl-vis/dataset/Coyote'
+    data_dir = pjoin(dataset_root, 'motions')
     all_file = pjoin(dataset_root, 'all.txt')
     test_file = pjoin(dataset_root, 'test.txt')
     train_file = pjoin(dataset_root, 'train.txt')

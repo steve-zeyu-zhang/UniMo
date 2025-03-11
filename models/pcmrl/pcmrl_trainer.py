@@ -89,12 +89,19 @@ class PCDETrainer:
 
 
 
-        knn_loss_g, knn_loss_l, knn_loss_v = self.knn_loss(samples, pred_pointcloud)
+        knn_loss_g, knn_loss_l, knn_loss_v = self.knn_loss(samples, pred_pointcloud, m_lens)
 
 
         pred_end_joints = pred_global_p.transpose(0, 2)[tgt_skeleton.end_joints].transpose(0, 2)
-        end_loss = torch.mean(torch.abs(end_joints - pred_end_joints))
+        # end_loss = torch.mean(torch.abs(end_joints - pred_end_joints))
 
+        end_loss_list = []
+        batch_size = end_joints.shape[0]
+        for i in range(batch_size):
+            valid_len = m_lens[i]
+            sample_loss = torch.mean(torch.abs(end_joints[i, :valid_len] - pred_end_joints[i, :valid_len]))
+            end_loss_list.append(sample_loss)
+        end_loss = torch.stack(end_loss_list).mean()
 
         unit_loss = torch.mean(torch.abs(1 - torch.linalg.vector_norm(pred_q, dim=-1)))
 
@@ -130,7 +137,7 @@ class PCDETrainer:
         self.scheduler.load_state_dict(checkpoint['scheduler'])
         return checkpoint['ep'], checkpoint['total_it']
 
-    def train(self, train_loader_iters, val_loaders):
+    def train(self, train_loader_iters, val_loaders_iters):
 
         self.pcde_model.to(self.device)
         
@@ -163,6 +170,9 @@ class PCDETrainer:
 
         assert len(train_loader_iters) == len(self.skeletons)
 
+        self.logger.info("visualization...")
+        # evaluation_pcde(self.args.eval_dir, val_loaders_iters, self.pcde_model, self.skeletons, it, self.writter, device=self.device, save=True, draw=True)
+        
         while epoch < self.args.max_epoch:
             for i, train_loader_iter in enumerate(train_loader_iters):
                 self.pcde_model.train()
@@ -206,7 +216,7 @@ class PCDETrainer:
 
                 if it % self.args.eval_every_it == 0:
                     self.logger.info("visualization...")
-                    evaluation_pcde(self.args.eval_dir, val_loaders, self.pcde_model, self.skeletons, it, self.writter, device=self.device, save=True, draw=True)
+                    evaluation_pcde(self.args.eval_dir, val_loaders_iters, self.pcde_model, self.skeletons, it, self.writter, device=self.device, save=True, draw=True)
 
                 if best_loss > logs['loss']:
                     self.save(pjoin(self.args.model_dir, 'best_loss.tar'), epoch, it)

@@ -58,13 +58,45 @@ if __name__ == "__main__":
 
     if args.dataset_name == 'Jaguar':
         args.min_length = 64
-        args.max_length =196
+        args.max_length = 196
 
-        skeleton_train_path = 'dataset/Jaguar/data/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh'
+        skeleton_train_path = 'dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh'
         train_split_file = 'dataset/Jaguar/train.txt'
         val_split_file = 'dataset/Jaguar/val.txt'
         dataset_path = 'dataset/Jaguar/'
-        
+    elif args.dataset_name == 'Dog':
+        args.min_length = 64
+        args.max_length = 196
+
+        dataset_names = ['Dog']
+        skeleton_train_paths = ['dataset/Dog/motions/Floor-Rise-Right_expansion_edit_Floor-Rise-Right_Running_000059999_expansion_0.25_0.25_seed10_Dog-Running_0.bvh']
+
+        dataset_paths = ['dataset/Dog/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
+    elif args.dataset_name == 'JAC':
+        args.min_length = 64
+        args.max_length = 196
+
+        dataset_names = ['Jaguar', 'Coyote']
+        skeleton_train_paths = ['dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh', 
+                               'dataset/Coyote/motions/Attack3_expansion_edit_Attack3_Walking_000059999_expansion_0.25_0.25_seed10_Coyote-Walking_18.bvh']
+
+        dataset_paths = ['dataset/Jaguar/', 'dataset/Coyote/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
+    elif args.dataset_name == 'UniML3D':
+        args.min_length = 64
+        args.max_length = 196
+
+        dataset_names = ['Jaguar', 'Coyote', 'Dog']
+        skeleton_train_paths = ['dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh', 
+                               'dataset/Coyote/motions/Attack3_expansion_edit_Attack3_Walking_000059999_expansion_0.25_0.25_seed10_Coyote-Walking_18.bvh',
+                               'dataset/Dog/motions/Floor-Rise-Right_expansion_edit_Floor-Rise-Right_Running_000059999_expansion_0.25_0.25_seed10_Dog-Running_0.bvh']
+
+        dataset_paths = ['dataset/Jaguar/', 'dataset/Coyote/', 'dataset/Dog/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
     else:
         raise KeyError('Dataset Does not Exists')
     
@@ -84,19 +116,14 @@ if __name__ == "__main__":
             opt_file.write('-------------- End ----------------\n')
 
 
-
-    train_loader = uni_dataset.DATALoader(dataset_path, train_split_file, min_length=args.min_length, max_length=196, step=4, batch_size=args.batch_size, drop_last=True, num_workers=4,
-                              shuffle=True, pin_memory=True)
-    train_loader_iter = uni_dataset.cycle(train_loader)
-
-    val_loader = uni_dataset.DATALoader(dataset_path, val_split_file, min_length=args.min_length, max_length=196, step=4, batch_size=8, drop_last=True, num_workers=4,
-                              shuffle=True, pin_memory=True)
+    src_skeletons = [uni_dataset.setup_skeleton(skeleton_train_path, args.device, dataset_name, args.src_n_points, args.std_cloud) for skeleton_train_path, dataset_name in zip(skeleton_train_paths, dataset_names)]
+    tgt_skeletons = src_skeletons
     
-    skeleton = uni_dataset.setup_skeleton(skeleton_train_path, args.device, args.dataset_name, args.src_n_points, args.std_cloud)
-
-    train_loader_iters = [train_loader_iter]
-    val_loaders = [val_loader]
-    tgt_skeletons = [skeleton]
+    train_loader_iters = [uni_dataset.cycle(uni_dataset.DATALoader(dataset_path, train_split_file, skeleton, min_length=args.min_length, max_length=args.max_length, step=4, batch_size=args.batch_size, drop_last=True, num_workers=4,
+                              shuffle=True, pin_memory=True)) for dataset_path, train_split_file, skeleton in zip(dataset_paths, train_split_files, src_skeletons)]
+    
+    val_loaders_iters = [uni_dataset.cycle(uni_dataset.DATALoader(dataset_path, val_split_file, skeleton, min_length=args.min_length, max_length=args.max_length, step=4, batch_size=6, drop_last=True, num_workers=4,
+                              shuffle=True, pin_memory=True)) for dataset_path, val_split_file, skeleton in zip(dataset_paths, val_split_files, src_skeletons)]
 
     valid_joints_list = []
     d_pose_outputs = []
@@ -125,4 +152,6 @@ if __name__ == "__main__":
 
 
     trainer = PCDETrainer(args, pcde_model=net, skeletons=tgt_skeletons, logger=logger)
-    trainer.train(train_loader_iters, val_loaders)
+    trainer.train(train_loader_iters, val_loaders_iters)
+
+## xvfb-run -a python train_pc_decoder.py --dataset_name UniML3D --name PCDE --desc 12bc_50000ep --gpu_id 0 --max_epoch 50000 --eval_every_it 2000
