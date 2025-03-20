@@ -200,7 +200,7 @@ def evaluation_pcde(out_dir, val_loaders_iters, pcde_model, tgt_skeletons, ep, w
             eval_pointcloud(samples[..., :3].cpu().numpy(), skeleton, 'encode', out_dir, ep, m_lens=m_lens, draw=draw)
             eval_pointcloud(pred_pointcloud[..., :3].cpu().numpy(), skeleton, 'pred', out_dir, ep, m_lens=m_lens, draw=draw)
 
-            eval_skeleton(real_global_p, real_global_q, skeleton, 'gt', out_dir, ep, m_lens=m_lens, draw=draw)
+            eval_skeleton(global_p, global_q, skeleton, 'gt', out_dir, ep, m_lens=m_lens, draw=draw)
             eval_skeleton(pred_global_p, pred_global_q, skeleton, 'pred', out_dir, ep, m_lens=m_lens, draw=draw)
 
 @torch.no_grad()

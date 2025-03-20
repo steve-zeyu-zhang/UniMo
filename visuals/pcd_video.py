@@ -36,7 +36,7 @@ def load_pcd_files(pcd_dir):
 def visualize_point_cloud_offscreen(pcd_files, output_video_path, fps=15, frame_size=(640, 480)):
     """
     apt-get install mesa-utils
-    apt-get install Xvfb
+    apt-get install xvfb
     pkill Xvfb
     Xvfb :1 -screen 0 640x480x24 &
     export DISPLAY=:1

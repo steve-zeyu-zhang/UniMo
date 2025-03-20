@@ -11,12 +11,19 @@ conda activate UniMo
 
 pip install git+https://github.com/openai/CLIP.git
 
-cd pytorch3d
+cd pytorch3d_local
+tar zxf 2.1.0.tar.gz
+export CUB_HOME=$PWD\/cub-2.1.0
 python setup.py install
-
+pip install -e .
 
 cd utils/emd
 python setup.py install
+
+
+git clone https://github.com/zshyang/ylib.git
+cd ylib
+pip install -e . 
 
 ```
 

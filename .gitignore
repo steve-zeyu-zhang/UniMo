@@ -5,7 +5,10 @@ checkpoint
 checkpoints
 evaluate
 lib
-pytorch3d
+pytorch3d_local
 SMPL_python_v.1.1.0
 models_pcmrl
 models-pcmg
+OmniMotionGPT
+ylib
+*.pyc

@@ -4,12 +4,15 @@ from torch.utils import data
 from torch.utils.data._utils.collate import default_collate
 from pytorch3d.transforms import euler_angles_to_matrix, matrix_to_quaternion
 import random
-import glob
+from glob import glob
 from data.skeleton import Skeleton
 from data.bvh import parse_bvh_skeleton
 import numpy as np
 from tqdm import tqdm
 import codecs as cs
+import json
+
+
 
 
 def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
@@ -23,15 +26,19 @@ def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
 
         # 检测身体部位分组
         joint_bgroups = torch.zeros(len(joint_names), 5, dtype=torch.float32, device=device)
+
         spine_keywords = {'spine', 'neck', 'head', 'hips', 'pelvis', 'back',
-                          'tail',
-                          'mouth', 'ear'}
+                          'tail', 'root', 'mouth', 'ear'}
         arm_keywords = {'arm', 'shoulder', 'hand', 'clavicle', 'finger',
                         'horse', 'hoof', 'paw'}
         leg_keywords = {'leg', 'thigh', 'calf', 'foot', 'toe', 'hip',
                         'hind', 'equine', 'quadruped'}
 
-        # 自动识别对称关节对
+        end_joints = [name for i, name in enumerate(joint_names) if any(kw in name.lower() for kw in {'hand', 'foot', 'toe'})]
+        
+
+        joint_tails = []
+
         pairs = []
         left_joints = []
         right_joints = []
@@ -39,59 +46,65 @@ def setup_skeleton(skeleton_file, device, skeleton_name, n_point=-1, std=-1):
         for i, name in enumerate(joint_names):
             lower_name = name.lower()
 
-            # 脊椎检测（包含尾巴、头部细节）
-            if any(kw in lower_name for kw in spine_keywords):
-                joint_bgroups[i, 0] = 1  # 脊椎组
+            if len(children[i]) == 0:
+                joint_tails.append(end_sites[name])
+            elif lower_name == "hips" or lower_name == 'root':
+                joint_tails.append(joint_offsets[children[i][-1]])
+            else:
+                joint_tails.append(joint_offsets[children[i][0]])
 
-            # 四肢检测
-            is_left = any([tag in lower_name for tag in ['left', '_l_']])  # 支持多种左标记
+            if any(kw in lower_name for kw in spine_keywords):
+                joint_bgroups[i, 0] = 1 
+
+
+            is_left = any([tag in lower_name for tag in ['left', '_l_']])  
             is_right = any([tag in lower_name for tag in ['right', '_r_']])
 
-            # 前肢/后肢判断逻辑
+
             if is_left:
                 if any(kw in lower_name for kw in arm_keywords):
-                    joint_bgroups[i, 1] = 1  # 左前肢
+                    joint_bgroups[i, 1] = 1 
                 elif any(kw in lower_name for kw in leg_keywords):
-                    joint_bgroups[i, 3] = 1  # 左后肢
+                    joint_bgroups[i, 3] = 1  
+                left_joints.append((i, name))
 
             if is_right:
                 if any(kw in lower_name for kw in arm_keywords):
-                    joint_bgroups[i, 2] = 1  # 右前肢
+                    joint_bgroups[i, 2] = 1  
                 elif any(kw in lower_name for kw in leg_keywords):
-                    joint_bgroups[i, 4] = 1  # 右后肢
+                    joint_bgroups[i, 4] = 1  
+                right_joints.append((i, name))
 
-        # 建立对称关节映射
+
         for li, lname in left_joints:
             rname = lname.replace("Left", "Right").replace("_L_", "_R_")
             if rname in joint_names:
                 ri = joint_names.index(rname)
                 pairs.append((li, ri))
 
-        # 自动识别末端关节
-        end_joints = [name for i, name in enumerate(joint_names)
-                      if len(children[i]) == 0 or  # 没有子节点
-                      any(kw in name.lower() for kw in {'hand', 'foot', 'toe'})]
-
-        # ======
-        # 先构建原始数据列表，再统一转换为Tensor
-        joint_tails = []
-        for i, name in enumerate(joint_names):
-            if len(children[i]) == 0:
-                # 确保end_sites返回的是三维坐标列表
-                tail = end_sites[name]
-            else:
-                # 使用原始列表而不是Tensor索引
-                tail = joint_offsets[children[i][0]]
-            joint_tails.append(tail)
-
 
         joint_offsets = torch.tensor(joint_offsets, dtype=torch.float32, device=device)
         joint_tails = torch.tensor(joint_tails, dtype=torch.float32, device=device)
         # ====================
         return Skeleton(joint_names, joint_hierarchy, joint_offsets, joint_tails, joint_bgroups, end_joints, pairs, skeleton_name=skeleton_name, n_point=n_point, std=std, 
-                    scale=0.056444, device=device, rotation_order="ZYX")
+                    scale=1, device=device, rotation_order="ZYX")
 
-                        
+def load_scale(animal_name, template_dir) -> float:
+    '''
+    load scale from the template
+    '''
+    json_file = glob(f'{template_dir}/{animal_name}_*.json')
+
+    # make sure that there is only one json file
+    assert len(json_file) == 1
+
+    with open(json_file[0], 'r', encoding='utf-8') as file:
+        json_data = json.load(file)
+
+    scale = json_data['scale'][0][0][0]
+
+    return scale
+       
 class UniDataset(data.Dataset):
     def __init__(self, dataset_path, split_file, skeleton, min_length=64, max_length=196, step=1):
 
@@ -156,7 +169,12 @@ class UniDataset(data.Dataset):
                 q = torch.cat([q[:1], q[1:] * sign], dim=0)
                 q = torch.reshape(q, (data.shape[0], -1))
 
-                motion = torch.cat([data[..., :3] * self.SCALE, q], dim=-1)
+                if 'AnimalML3D' in dataset_path:
+                    scale = load_scale(name.split('_')[0], pjoin(dataset_path, 'metas', 'templates'))
+                else:
+                    scale = self.SCALE
+
+                motion = torch.cat([data[..., :3] * scale, q], dim=-1)
 
                 text_data = []
                 with cs.open(pjoin(dataset_path, './texts/', name + '.txt')) as f:
@@ -170,7 +188,8 @@ class UniDataset(data.Dataset):
                         text_dict['caption'] = caption
 
                         text_data.append(text_dict)
-
+                if len(text_data) == 0:
+                    continue
                 data_dict[name] = {'motion': motion,
                                     'text': text_data}
                 name_list.append(name)

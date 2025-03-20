@@ -60,10 +60,33 @@ if __name__ == "__main__":
         args.min_length = 64
         args.max_length = 196
 
-        skeleton_train_path = 'dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh'
-        train_split_file = 'dataset/Jaguar/train.txt'
-        val_split_file = 'dataset/Jaguar/val.txt'
-        dataset_path = 'dataset/Jaguar/'
+        dataset_names = ['Jaguar']
+        skeleton_train_paths = ['dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh']
+
+        dataset_paths = ['dataset/Jaguar/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
+    elif args.dataset_name == 'AAJ':
+        args.min_length = 64
+        args.max_length = 196
+
+        dataset_names = ['Jaguar', 'AnimalML3D']
+        skeleton_train_paths = ['dataset/Jaguar/motions/Idle_expansion_edit_Idle_Walk_000059999_expansion_0.25_0.25_seed10_Jaguar-Walk_1.bvh',
+                                'dataset/AnimalML3D/motions/bear9AK_SwimIdleRM.bvh']
+
+        dataset_paths = ['dataset/Jaguar/', 'dataset/AnimalML3D/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
+    elif args.dataset_name == 'AnimalML3D':
+        args.min_length = 64
+        args.max_length = 196
+
+        dataset_names = ['AnimalML3D']
+        skeleton_train_paths = ['dataset/AnimalML3D/motions/bear9AK_SwimIdleRM.bvh']
+
+        dataset_paths = ['dataset/AnimalML3D/']
+        train_split_files = [pjoin(dataset_path, 'train.txt') for dataset_path in dataset_paths]
+        val_split_files = [pjoin(dataset_path, 'val.txt') for dataset_path in dataset_paths]
     elif args.dataset_name == 'Dog':
         args.min_length = 64
         args.max_length = 196
@@ -155,3 +178,5 @@ if __name__ == "__main__":
     trainer.train(train_loader_iters, val_loaders_iters)
 
 ## xvfb-run -a python train_pc_decoder.py --dataset_name UniML3D --name PCDE --desc 12bc_50000ep --gpu_id 0 --max_epoch 50000 --eval_every_it 2000
+## xvfb-run -a python train_pc_decoder.py --dataset_name Jaguar --name PCDE --desc 12bc_50000ep --gpu_id 0 --max_epoch 50000 --eval_every_it 500
+## xvfb-run -a python train_pc_decoder.py --dataset_name AnimalML3D --name PCDE --desc 12bc_50000ep --gpu_id 0 --max_epoch 50000 --eval_every_it 2000

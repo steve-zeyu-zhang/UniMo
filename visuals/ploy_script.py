@@ -45,7 +45,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     data = joints.copy().reshape(len(joints), -1, 3)
     frames_number = data.shape[0]
     frame_colors = ['blue' if index in gt_frames else 'orange' for index in range(frames_number)]
-    if dataset in ['mixmamo', 'bvh_general']:
+    if dataset in ['mixmamo', 'bvh_general', 'AnimalML3D']:
         frame_colors = ['dragon'] * frames_number
     if vis_mode == 'unfold':  # FIXME: hard coded intervals
         frame_colors = ['purple'] * 40 + ['orange'] * 40
@@ -94,6 +94,8 @@ def explicit_plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, f
         data *= -1.3
     elif dataset in ['mixmamo', 'bvh_general']:
         data *= 20
+    elif dataset == 'AnimalML3D':
+        data *= 1.3
 
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111, projection='3d')
@@ -169,16 +171,16 @@ def explicit_plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, f
 
 
 if __name__ == "__main__":
-    in_dir = f'/root/autodl-tmp/PCMRL/output/epoch_50000/bvh/predict'
+    in_dir = f'dataset/AnimalML3D/motions'
     bvh_files = glob(osp.join(in_dir, '*.bvh'))
-    save_dir = "./output/epoch_50000/bvh_vis/"
+    save_dir = "output/vis-tmp"
     fps = 20
-    dataset = "bvh_general"
+    dataset = "AnimalML3D"
 
     for idx, in_file in enumerate(bvh_files):
         anim, joint_names, frametime = BVH.load(in_file)
         kinematic_chain = get_kinematic_chain(anim.parents)
-        print('Pose shape:', anim.positions.shape)
+        name = in_file.split('/')[-1].split('.bvh')[0]
         joint = anim_pos(anim)
-        save_path = pjoin(save_dir, '%02d.mp4' % (idx))
+        save_path = pjoin(save_dir, f"{name}.mp4")
         plot_3d_motion(save_path, kinematic_chain, joints=joint, dataset=dataset, title='%02d' % (idx), fps=fps)

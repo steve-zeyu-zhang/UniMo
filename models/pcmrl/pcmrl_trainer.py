@@ -171,7 +171,7 @@ class PCDETrainer:
         assert len(train_loader_iters) == len(self.skeletons)
 
         self.logger.info("visualization...")
-        # evaluation_pcde(self.args.eval_dir, val_loaders_iters, self.pcde_model, self.skeletons, it, self.writter, device=self.device, save=True, draw=True)
+        evaluation_pcde(self.args.eval_dir, val_loaders_iters, self.pcde_model, self.skeletons, it, self.writter, device=self.device, save=True, draw=True)
         
         while epoch < self.args.max_epoch:
             for i, train_loader_iter in enumerate(train_loader_iters):

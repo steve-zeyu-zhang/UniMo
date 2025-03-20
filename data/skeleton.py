@@ -400,14 +400,15 @@ class Skeleton:
 
 
 
-    def generate_pointcloud(self, global_p, global_q, m_lens, n_points=256, std=1.0, output_joints=False):
+    def generate_pointcloud(self, global_p, global_q, m_lens, n_points=-1, std=-1, output_joints=False):
         # global_p: [b, max_l, j, 3]
         # global_q: [b, max_l, j, 4]
         # m_lens: a list or tensor indicating the actual number of valid frames for each batch (length = b)
         # output: [b, max_l, n_points, 3 + bgroups_dim] (frames beyond m_lens are padded with zeros)
 
-        if self.n_point != -1:
+        if n_points == -1:
             n_points = self.n_point
+        if std == -1:
             std = self.std
 
         batches = global_p.shape[0]
